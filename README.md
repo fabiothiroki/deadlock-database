@@ -33,13 +33,13 @@ docker compose version
 ```bash
 git clone https://github.com/your-username/deadlock-demo.git
 cd deadlock-demo
+```
 
 ### 2. Start the Environment
 
 This command will build the Python application and start the database.
 
-```bash
-    
+```bash    
 docker compose up --build
 ```
 
