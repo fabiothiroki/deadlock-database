@@ -1,0 +1,33 @@
+services:
+  # The Database Service
+  db:
+    image: postgres:18.1-alpine
+    container_name: deadlock-demo-db
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=bank_db
+    ports:
+      - "5432:5432"
+    # Healthcheck ensures the DB is ready before the app tries to connect
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d bank_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # The Python Backend
+  app:
+    build: .
+    container_name: deadlock-demo-app
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      # We construct the connection string using the db service name
+      - DB_DSN=postgresql://user:password@db:5432/bank_db
+    # We enable reload so you can edit code without restarting the container
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
