@@ -1,60 +1,70 @@
 import requests
 import concurrent.futures
 import random
+import sys
 
-# Configuration
+# --- CONFIGURATION ---
+# Since we run this INSIDE the container via 'exec', localhost refers to the container itself.
 API_URL = "http://localhost:8000"
-CONCURRENT_USERS = 8  # How many requests running at the exact same time
-TOTAL_REQUESTS = 50   # Total transfers to attempt
+CONCURRENT_USERS = 8
+TOTAL_REQUESTS = 20
 
-def send_transfer(transfer_id):
-    """
-    Sends a single transfer request.
-    Randomly decides direction (Alice->Bob or Bob->Alice)
-    """
-    # 50% chance for Alice->Bob, 50% chance for Bob->Alice
+def get_endpoint():
+    """Determines safe vs unsafe based on CLI arguments"""
+    if len(sys.argv) > 1 and sys.argv[1] == "safe":
+        return "/transfer/safe"
+    return "/transfer/unsafe"
+
+def send_transfer(i, endpoint):
+    # Randomize direction
     if random.choice([True, False]):
         payload = {"from_account": 1, "to_account": 2, "amount": 10}
-        direction = "Alice -> Bob"
+        label = "Alice -> Bob"
     else:
         payload = {"from_account": 2, "to_account": 1, "amount": 10}
-        direction = "Bob -> Alice"
+        label = "Bob -> Alice"
 
     try:
-        # Change to /transfer/safe to test the fix
-        response = requests.post(f"{API_URL}/transfer/unsafe", json=payload)
-        
-        if response.status_code == 200:
-            print(f"[{transfer_id}] ✅ Success: {direction}")
-            return "success"
-        elif response.status_code == 500:
-            print(f"[{transfer_id}] ❌ DEADLOCK: {direction}")
+        resp = requests.post(f"{API_URL}{endpoint}", json=payload)
+        if resp.status_code == 200:
+            print(f"[{i}] ✅ Success: {label}")
+            return "ok"
+        elif resp.status_code == 500:
+            print(f"[{i}] ❌ DEADLOCK: {label}")
             return "deadlock"
         else:
-            print(f"[{transfer_id}] ⚠️ Error: {response.text}")
+            print(f"[{i}] ⚠️ Error: {resp.status_code}")
             return "error"
-            
     except Exception as e:
-        print(f"Request failed: {e}")
+        print(f"Connection Error: {e}")
         return "error"
 
-def run_attack():
-    print(f"--- Starting Attack: {TOTAL_REQUESTS} requests with {CONCURRENT_USERS} concurrent users ---")
+def main():
+    endpoint = get_endpoint()
+    mode_name = "SAFE (Fixed)" if "safe" in endpoint else "UNSAFE (Deadlock prone)"
     
-    # First, reset the DB so we have a clean slate
-    requests.post(f"{API_URL}/reset")
+    print(f"\n--- Starting Attack ---")
+    print(f"Mode: {mode_name}")
+    print(f"Target: {API_URL}{endpoint}")
+    print(f"Users: {CONCURRENT_USERS}")
     
-    # We use a ThreadPool to simulate multiple users acting at once
-    with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENT_USERS) as executor:
-        # Submit all tasks to the pool
-        futures = [executor.submit(send_transfer, i) for i in range(TOTAL_REQUESTS)]
-        
-        # Wait for them to finish and collect results
-        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+    # Reset DB first so we start fresh
+    try:
+        requests.post(f"{API_URL}/reset")
+        print("Database reset successfully.\n")
+    except Exception:
+        print("❌ Error: Could not connect to API. Is the docker container running?")
+        return
 
-    print("\n--- Results ---")
-    print(f"Successful Transfers: {results.count('success')}")
-    print(f"Deadlocks Triggered:  {results.count('deadlock')}")
+    # Run concurrent requests
+    with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENT_USERS) as executor:
+        # We use lambda to pass the specific endpoint to the worker function
+        futures = [executor.submit(send_transfer, i, endpoint) for i in range(TOTAL_REQUESTS)]
+        results = [f.result() for f in futures]
+
+    print("\n--- Summary ---")
+    print(f"Success:   {results.count('ok')}")
+    print(f"Deadlocks: {results.count('deadlock')}")
 
 if __name__ == "__main__":
-    run_attack()
+    main()
