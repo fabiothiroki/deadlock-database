@@ -71,7 +71,7 @@ def transfer_unsafe(req: TransferRequest):
         with pool.connection() as conn:
             with conn.cursor() as cur:
                 # 1. Lock the sender's account
-                logger.info(f"Locking sender: {req.from_account}")
+                # We MUST lock here to safely check if they have funds.
                 cur.execute(
                     "SELECT balance FROM accounts WHERE id = %s FOR UPDATE", 
                     (req.from_account,)
@@ -80,29 +80,18 @@ def transfer_unsafe(req: TransferRequest):
 
                 if current_balance < req.amount:
                     raise HTTPException(status_code=400, detail="Insufficient funds")
-
-                # --- ARTIFICIAL DELAY ---
-                # This simulates 'business logic' and widens the window for deadlock
+                
+                # ARTIFICIAL DELAY (Simulating latency)
                 time.sleep(0.1) 
-                # ------------------------
 
-                # 2. Lock the receiver's account
-                logger.info(f"Locking receiver: {req.to_account}")
-                cur.execute(
-                    "SELECT balance FROM accounts WHERE id = %s FOR UPDATE", 
-                    (req.to_account,)
-                )
+                # 2. Perform the Transfer
+                cur.execute("UPDATE accounts SET balance = balance - %s WHERE id = %s", (req.amount, req.from_account))
                 
-                # 3. Perform the Transfer
-                cur.execute(
-                    "UPDATE accounts SET balance = balance - %s WHERE id = %s", 
-                    (req.amount, req.from_account)
-                )
-                cur.execute(
-                    "UPDATE accounts SET balance = balance + %s WHERE id = %s", 
-                    (req.amount, req.to_account)
-                )
-                
+                # --- THE TRAP IS HERE ---
+                # This UPDATE statement implicitly tries to lock the receiver's row.
+                # If Bob is the receiver, and Bob is running a transaction... deadlock.
+                cur.execute("UPDATE accounts SET balance = balance + %s WHERE id = %s", (req.amount, req.to_account))
+
                 conn.commit()
                 return {"status": "success", "msg": "Transfer complete"}
 
