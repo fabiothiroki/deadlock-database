@@ -1,6 +1,6 @@
 # Database Deadlock Demo: Bank Transfer 🏦💥
 
-This project is a practical demonstration of **Database Deadlocks**, created to support my article. 
+This project is a practical demonstration of **Database Deadlocks**, created to support [my article](https://medium.com/p/72bea0d18537). 
 
 It simulates a high-concurrency banking environment where multiple users try to transfer money to each other simultaneously. It demonstrates how a naive implementation causes the database to crash (deadlock) and how a simple engineering pattern (Lock Ordering) fixes it completely.
 
